@@ -7,6 +7,7 @@ mnist = input_data.read_data_sets("MNIST_data/", one_hot=True)
 #test data
 images = mnist.test.images[0:4]
 
+deepMnist.restore()
 result = deepMnist.predict(images)
 print result
 
