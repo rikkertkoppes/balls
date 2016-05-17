@@ -53,9 +53,6 @@ def createModel():
 #setup model
 x, keep_prob, y_conv = createModel()
 
-#prediction
-prediction = tf.argmax(y_conv,1)
-# prediction = [tf.reduce_max(y),tf.argmax(y,1)[0]]
 
 #restore
 sess = tf.Session()
@@ -66,8 +63,12 @@ def restore():
     print("Model restored.")
 
 def predict(images):
+    #prediction, index of max confidence in one-hot is the number
+    prediction = tf.argmax(y_conv,1)
+    # prediction = [tf.reduce_max(y_conv),tf.argmax(y_conv,1)]
     #run
     result = sess.run(prediction, feed_dict={x: images, keep_prob: 1.0})
+    # result = sess.run(y_conv, feed_dict={x: images, keep_prob: 1.0})
     return result
 
 def close():
@@ -84,8 +85,6 @@ def train(images):
         train_step.run(feed_dict={x: batch[0], y_: batch[1], keep_prob: 0.5})
 
     print("test accuracy %g"%accuracy.eval(feed_dict={x: mnist.test.images, y_: mnist.test.labels, keep_prob: 1.0}))
-
-    print(sess.run(prediction, feed_dict={x: images, keep_prob: 1.0}))
 
     save_path = saver.save(sess, "./mnist-model.ckpt")
     print("Model saved in file: %s" % save_path)
