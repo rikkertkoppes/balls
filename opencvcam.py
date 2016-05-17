@@ -4,8 +4,9 @@ import cv2.cv as cv
 import numpy as np
 import numpy.ma as ma
 
-from sklearn.externals import joblib 
-from skimage.feature import hog 
+from scipy import ndimage
+from sklearn.externals import joblib
+from skimage.feature import hog
 
 def detect(img, threshold):
     bimg = cv2.medianBlur(img,11)
@@ -28,12 +29,13 @@ def detect(img, threshold):
         x = c[0]-c[2]
         y = c[1]-c[2]
         d = 2*c[2]
-        roi = img.copy()[y:y+d,x:x+d]
+        patch = img.copy()[y:y+d,x:x+d]
         cv2.circle(img,(c[0],c[1]),c[2],(0,255,0),2)
         cv2.line(img,(c[0]-c[2],c[1]),(c[0]+c[2],c[1]),(0,255,0),1)
 
         #resize to create an image we can segment later
-        roi = cv2.resize(roi,(255,255))
+        if patch.size > 0:
+            roi = cv2.resize(patch,(255,255))
 
     return roi, circles
 
@@ -45,10 +47,28 @@ def identify(img, clf):
     return nbr[0]
 
 
+# see http://openmachin.es/blog/tensorflow-mnist
+# resize retaining proportions, to a 20x20 box and 4 px border
+#resize rois to 28x28 for further recognition against mnist
+def getBestShift(img):
+    cy,cx = ndimage.measurements.center_of_mass(img)
+
+    rows,cols = img.shape
+    shiftx = np.round(cols/2.0-cx).astype(int)
+    shifty = np.round(rows/2.0-cy).astype(int)
+
+    return shiftx,shifty
+
+def shift(img,sx,sy):
+    rows,cols = img.shape
+    M = np.float32([[1,0,sx],[0,1,sy]])
+    shifted = cv2.warpAffine(img,M,(cols,rows))
+    return shifted
+
 def segment(img):
     #threshold
-    img = cv2.adaptiveThreshold(img, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 127, 40)
-    
+    img = cv2.adaptiveThreshold(img, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 127, 45)
+
     #mask out outside the ball
     mask = img.copy()
     mask.fill(255)
@@ -67,11 +87,31 @@ def segment(img):
     # print len(rects)
     # print rects[:5]
     for (x,y,w,h) in rects:
-        #resize rois to 28x28 for further recognition against mnist
         if y > (128-h) and y < 128:
-            imgs.append(cv2.resize(img[y:y+h,x:x+w], (28,28)))
+            # 28 x 28 patch
+            patch = np.zeros((28, 28), np.uint8)
+            patch.fill(255)
+            # digit from original, scale to max 20px largest dimension
+            digit = img[y:y+h,x:x+w]
+            maxdim = max(h,w)
+            scale = 20.0 / maxdim
+            dw = int(round(w*scale))
+            dh = int(round(h*scale))
+            digit = cv2.resize(digit, (dw,dh))
+            # paste digit in patch
+            ox = (28 - dw)/2
+            oy = (28 - dh)/2
+            patch[oy:oy+dh, ox:ox+dw] = digit
+            patch = 255 - patch
+
+            #shift center of mass
+            shiftx,shifty = getBestShift(patch)
+            shifted = shift(patch,shiftx,shifty)
+            patch = shifted
+
+            imgs.append(patch)
             cv2.rectangle(draw,(x,y),(x+w,y+h),(0,255,0),2)
-        
+
     return draw, imgs[:5]
 
 def static():
@@ -100,6 +140,7 @@ def run():
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
         frame = cv2.equalizeHist(frame)
+        # ret, frame = cv2.threshold(frame, 127, 255, cv2.THRESH_TOZERO)
 
         #detect, adaptive
         roi, circles = detect(frame, 200)
@@ -118,11 +159,11 @@ def run():
             #flip back
             roi = cv2.flip(roi,1)
             #segment
-            roi, rois = segment(roi) 
+            roi, rois = segment(roi)
 
             nr = ''.join([str(identify(r, clf)) for r in rois])
             cv2.putText(roi,'{}'.format(nr),(10,20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, 0)
-            
+
             cv2.imshow('roi',roi)
             cv2.moveWindow('roi',700,0)
 
