@@ -3,10 +3,9 @@ import math
 import cv2.cv as cv
 import numpy as np
 import numpy.ma as ma
+import deepMnist
 
 from scipy import ndimage
-from sklearn.externals import joblib
-from skimage.feature import hog
 
 def detect(img, threshold):
     bimg = cv2.medianBlur(img,11)
@@ -39,15 +38,8 @@ def detect(img, threshold):
 
     return roi, circles
 
-def identify(img, clf):
-    # img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    # img = cv2.resize(img,(28,28))
-    roi_hog_fd = hog(img, orientations=9, pixels_per_cell=(14, 14), cells_per_block=(1, 1), visualise=False)
-    nbr = clf.predict(np.array([roi_hog_fd], 'float64'))
-    return nbr[0]
-
-
 # see http://openmachin.es/blog/tensorflow-mnist
+# and http://openmachin.es/blog/tensorflow-mnist-nod
 # resize retaining proportions, to a 20x20 box and 4 px border
 #resize rois to 28x28 for further recognition against mnist
 def getBestShift(img):
@@ -68,6 +60,7 @@ def shift(img,sx,sy):
 def segment(img):
     #threshold
     img = cv2.adaptiveThreshold(img, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 127, 45)
+    # ret, img = cv2.threshold(img, 127, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
 
     #mask out outside the ball
     mask = img.copy()
@@ -129,7 +122,7 @@ def static():
 
 def run():
     cap = cv2.VideoCapture(0)
-    clf = joblib.load("digits_cls.pkl")
+    deepMnist.restore()
     th = 200
     while(True):
         # Capture frame-by-frame
@@ -161,23 +154,27 @@ def run():
             #segment
             roi, rois = segment(roi)
 
-            nr = ''.join([str(identify(r, clf)) for r in rois])
-            cv2.putText(roi,'{}'.format(nr),(10,20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, 0)
-
-            cv2.imshow('roi',roi)
-            cv2.moveWindow('roi',700,0)
-
             # print len(rois)
             if len(rois) == 5:
+                flat = [r.flatten() for r in rois]
+                result = deepMnist.predict(flat)
+                print result
+                nr = ''.join([str(r) for r in result])
+                cv2.putText(roi,'{}'.format(nr),(10,20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, 0)
+
                 num = np.concatenate([r for r in rois], axis=1)
                 cv2.imshow('rois',num)
                 cv2.moveWindow('rois',700,300)
+
+            cv2.imshow('roi',roi)
+            cv2.moveWindow('roi',700,0)
 
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
 
     # When everything done, release the capture
     cap.release()
+    deepMnist.close()
 
 run()
 # static()
