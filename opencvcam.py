@@ -4,6 +4,7 @@ import cv2.cv as cv
 import numpy as np
 import numpy.ma as ma
 import deepMnist
+import webbrowser
 
 from scipy import ndimage
 
@@ -118,12 +119,16 @@ def static():
     cv2.imshow('detected roi',roi)
     cv2.waitKey(0)
 
-
+def showCase(nr):
+    url = 'http://fogbugz.theapsgroup.com/default.asp?{}'.format(nr)
+    webbrowser.open(url, new=1)
 
 def run():
     cap = cv2.VideoCapture(0)
     deepMnist.restore()
     th = 200
+    lastScans = []
+    lastResult = None
     while(True):
         # Capture frame-by-frame
         ret, frame = cap.read()
@@ -158,8 +163,21 @@ def run():
             if len(rois) == 5:
                 flat = [r.flatten() for r in rois]
                 result = deepMnist.predict(flat)
-                print result
-                nr = ''.join([str(r) for r in result])
+                nr = int(''.join([str(r) for r in result]))
+                lastScans.append(nr)
+                # keep last 5
+                lastScans = lastScans[-5:]
+                print lastScans
+
+                if len(lastScans) == 5:
+                    if lastScans[1:] == lastScans[:-1]:
+                        if not lastResult == lastScans[0]:
+                            print 'scanResult'
+                            print lastScans[0]
+                            lastResult = lastScans[0]
+                            showCase(lastResult)
+
+
                 cv2.putText(roi,'{}'.format(nr),(10,20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, 0)
 
                 num = np.concatenate([r for r in rois], axis=1)
