@@ -4,18 +4,25 @@ import cv2.cv as cv
 import numpy as np
 import numpy.ma as ma
 import deepMnist
-import webbrowser
+import time
+import urllib2
 
 from scipy import ndimage
 
 def detect(img, threshold):
-    bimg = cv2.medianBlur(img,11)
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    gray = cv2.equalizeHist(gray)
+
+    # paint detection rectangle, only detect inside that
+    cv2.rectangle(img,(245,165),(395,315),(0,255,0),2)
+    gray = gray[165:315,245:395]
+
+    bimg = cv2.medianBlur(gray,11)
     cimg = cv2.equalizeHist(bimg)
-    h,w, = img.shape
+    h,w,c = img.shape
     hw = h / 2
     hh = w / 2
-    # cimg = cv2.cvtColor(bimg,cv2.COLOR_BGR2GRAY)
-    # roi = bimg
+
     roi = None
     circles = cv2.HoughCircles(cimg,cv.CV_HOUGH_GRADIENT,1,20,
         param1=threshold,param2=40,minRadius=0,maxRadius=0)
@@ -29,15 +36,15 @@ def detect(img, threshold):
         x = c[0]-c[2]
         y = c[1]-c[2]
         d = 2*c[2]
-        patch = img.copy()[y:y+d,x:x+d]
-        cv2.circle(img,(c[0],c[1]),c[2],(0,255,0),2)
-        cv2.line(img,(c[0]-c[2],c[1]),(c[0]+c[2],c[1]),(0,255,0),1)
+        patch = gray.copy()[y:y+d,x:x+d]
+        cv2.circle(img,(245+c[0],165+c[1]),c[2],(0,255,0),2)
+        cv2.line(img,(245+c[0]-c[2],165+c[1]),(245+c[0]+c[2],165+c[1]),(0,255,0),1)
 
         #resize to create an image we can segment later
         if patch.size > 0:
             roi = cv2.resize(patch,(255,255))
 
-    return roi, circles
+    return img, roi, circles
 
 # see http://openmachin.es/blog/tensorflow-mnist
 # and http://openmachin.es/blog/tensorflow-mnist-nod
@@ -119,9 +126,13 @@ def static():
     cv2.imshow('detected roi',roi)
     cv2.waitKey(0)
 
+def beep():
+    print "\a"
+
 def showCase(nr):
-    url = 'http://fogbugz.theapsgroup.com/default.asp?{}'.format(nr)
-    webbrowser.open(url, new=1)
+    url = 'http://localhost:8477/show/{}'.format(nr)
+    urllib2.urlopen(url)
+    beep()
 
 def run():
     cap = cv2.VideoCapture(0)
@@ -129,19 +140,15 @@ def run():
     th = 200
     lastScans = []
     lastResult = None
+    lastScanTime = None
     while(True):
         # Capture frame-by-frame
         ret, frame = cap.read()
-
-        # Our operations on the frame come here
         frame = cv2.flip(frame,1)
-        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-        frame = cv2.equalizeHist(frame)
-        # ret, frame = cv2.threshold(frame, 127, 255, cv2.THRESH_TOZERO)
 
         #detect, adaptive
-        roi, circles = detect(frame, 200)
+        frame, roi, circles = detect(frame, 200)
+
         if circles is None:
             th = max(0,th-1)
         else:
@@ -160,7 +167,9 @@ def run():
             roi, rois = segment(roi)
 
             # print len(rois)
+            # we have 5 digits
             if len(rois) == 5:
+                # predict number
                 flat = [r.flatten() for r in rois]
                 result = deepMnist.predict(flat)
                 nr = int(''.join([str(r) for r in result]))
@@ -169,12 +178,14 @@ def run():
                 lastScans = lastScans[-5:]
                 print lastScans
 
+                #scanned the same number 5 times in a row
                 if len(lastScans) == 5:
                     if lastScans[1:] == lastScans[:-1]:
                         if not lastResult == lastScans[0]:
                             print 'scanResult'
                             print lastScans[0]
                             lastResult = lastScans[0]
+                            lastScanTime = time.clock()
                             showCase(lastResult)
 
 
@@ -186,6 +197,13 @@ def run():
 
             cv2.imshow('roi',roi)
             cv2.moveWindow('roi',700,0)
+
+        # reset scanner after 5 seconds
+        if lastScanTime is not None:
+            if time.clock() - lastScanTime > 5:
+                print 'scan reset'
+                lastScanTime = None
+                lastResult = None
 
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
