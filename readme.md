@@ -2,7 +2,7 @@
 
 ## Goal
 
-We write internal tickets on balls, so that we can pass them around, order them and talk about them in a visual and tangible way. I wanted to create a system that would allow us to "scan" a ball using a webcam and open the associated ticket in out bug tracking system.
+We write internal tickets on balls, so that we can pass them around, order them and talk about them in a visual and tangible way. I wanted to create a system that would allow us to "scan" a ball using a webcam and open the associated ticket in our bug tracking system.
 
 ## Method
 
@@ -17,7 +17,7 @@ We write internal tickets on balls, so that we can pass them around, order them 
 
 - `train-tensorflow.py`: training the network, basically directly copied from the [deep mnist tensorflow example](https://www.tensorflow.org/versions/r0.8/tutorials/mnist/pros/index.html)
 - `mnist-model.ckpt`: the trained model, saved as checkpoint
-- `deepMnist.py`: small library that contains out model
+- `deepMnist.py`: small library that contains our model
 - `opencvcam.py`: the actual detection script. Performs the steps in the model above and sends a get request to a local endpoint
 - `server.js`: a small nodejs server (because I am more familiar with websockets in node than in python). To process the request and load the ticket in an iframe
 - `public/index.html`: the webpage handling the above websocket data
