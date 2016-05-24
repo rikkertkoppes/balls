@@ -54,7 +54,7 @@ class Detector(object):
                 nr = int(''.join([str(r) for r in result]))
                 self.addScan(nr)
 
-    def checkClock():
+    def checkClock(self):
         if self.lastScanTime is not None:
             if time.clock() - self.lastScanTime > 5:
                 print 'scan reset'
