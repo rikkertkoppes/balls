@@ -1,0 +1,9 @@
+{
+    "fogbugz": {
+        "url": "",
+        "email": "",
+        "password": "",
+        "debug": false
+    },
+    "port": 8477
+}
