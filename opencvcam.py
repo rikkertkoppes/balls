@@ -9,42 +9,96 @@ import urllib2
 
 from scipy import ndimage
 
-def detect(img, threshold):
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    gray = cv2.equalizeHist(gray)
+class Detector(object):
+    def __init__(self,topLeft, bottomRight, text='', color=(0,255,0), onScan=None, threshold=200):
+        self.topLeft = topLeft
+        self.bottomRight = bottomRight
+        self.text = text
+        self.color = color
+        self.threshold = threshold
+        self.onScan = onScan
+        self.lastScans = []
+        self.lastResult = None
+        self.lastScanTime = None
 
-    # paint detection rectangle, only detect inside that
-    cv2.rectangle(img,(245,165),(395,315),(0,255,0),2)
-    gray = gray[165:315,245:395]
+    def addScan(self, nr):
+        self.lastScans.append(nr)
+        # keep last 5
+        self.lastScans = self.lastScans[-5:]
+        print self.lastScans
 
-    bimg = cv2.medianBlur(gray,11)
-    cimg = cv2.equalizeHist(bimg)
-    h,w,c = img.shape
-    hw = h / 2
-    hh = w / 2
+        #scanned the same number 5 times in a row
+        if len(self.lastScans) == 5:
+            if self.lastScans[1:] == self.lastScans[:-1]:
+                if not self.lastResult == self.lastScans[0]:
+                    print 'scanResult'
+                    print self.lastScans[0]
+                    self.lastResult = self.lastScans[0]
+                    self.lastScanTime = time.clock()
+                    if self.onScan:
+                        self.onScan(self.lastResult)
 
-    roi = None
-    circles = cv2.HoughCircles(cimg,cv.CV_HOUGH_GRADIENT,1,20,
-        param1=threshold,param2=40,minRadius=0,maxRadius=0)
+    def identify(self, roi):
+        if roi is not None:
+            #flip back
+            roi = cv2.flip(roi,1)
+            #segment
+            roi, rois = segment(roi)
 
-    if circles is not None:
-        circles = np.uint16(np.around(circles))[0,:]
-        circles = sorted(circles,key=lambda c: (c[0]-hw)**2 + (c[1]-hh)**2)
+            # print len(rois)
+            # we have 5 digits
+            if len(rois) == 5:
+                # predict number
+                flat = [r.flatten() for r in rois]
+                result = deepMnist.predict(flat)
+                nr = int(''.join([str(r) for r in result]))
+                self.addScan(nr)
 
-        # pick the one closest to center
-        c = circles[0]
-        x = c[0]-c[2]
-        y = c[1]-c[2]
-        d = 2*c[2]
-        patch = gray.copy()[y:y+d,x:x+d]
-        cv2.circle(img,(245+c[0],165+c[1]),c[2],(0,255,0),2)
-        cv2.line(img,(245+c[0]-c[2],165+c[1]),(245+c[0]+c[2],165+c[1]),(0,255,0),1)
+    def checkClock():
+        if self.lastScanTime is not None:
+            if time.clock() - self.lastScanTime > 5:
+                print 'scan reset'
+                self.lastScanTime = None
+                self.lastResult = None
 
-        #resize to create an image we can segment later
-        if patch.size > 0:
-            roi = cv2.resize(patch,(255,255))
+    def detect(self, img, gray):
+        x1,y1 = self.topLeft
+        x2,y2 = self.bottomRight
+        cv2.putText(img,self.text,(x1, y1-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, self.color)
+        cv2.rectangle(img,self.topLeft,self.bottomRight,self.color,2)
+        gray = gray[y1:y2,x1:x2]
+        bimg = cv2.medianBlur(gray,11)
+        cimg = cv2.equalizeHist(bimg)
+        h,w = cimg.shape
+        hw = h / 2
+        hh = w / 2
 
-    return img, roi, circles
+        roi = None
+        circles = cv2.HoughCircles(cimg,cv.CV_HOUGH_GRADIENT,1,20,
+            param1=self.threshold,param2=40,minRadius=0,maxRadius=0)
+
+        if circles is not None:
+            circles = np.uint16(np.around(circles))[0,:]
+            circles = sorted(circles,key=lambda c: (c[0]-hw)**2 + (c[1]-hh)**2)
+
+            # pick the one closest to center
+            c = circles[0]
+            x = c[0]-c[2]
+            y = c[1]-c[2]
+            d = 2*c[2]
+            patch = gray.copy()[y:y+d,x:x+d]
+            cv2.circle(img,(x1+c[0],y1+c[1]),c[2],self.color,2)
+            cv2.line(img,(x1+c[0]-c[2],y1+c[1]),(x1+c[0]+c[2],y1+c[1]),self.color,1)
+
+            #resize to create an image we can segment later
+            if patch.size > 0:
+                roi = cv2.resize(patch,(255,255))
+
+        self.identify(roi)
+        self.checkClock()
+
+        return img, roi
+
 
 # see http://openmachin.es/blog/tensorflow-mnist
 # and http://openmachin.es/blog/tensorflow-mnist-nod
@@ -130,80 +184,70 @@ def beep():
     print "\a"
 
 def showCase(nr):
-    url = 'http://localhost:8477/show/{}'.format(nr)
+    url = 'http://localhost:8477/add/{}'.format(nr)
     urllib2.urlopen(url)
-    beep()
+
+def hideCase(nr):
+    url = 'http://localhost:8477/rem/{}'.format(nr)
+    urllib2.urlopen(url)
 
 def run():
     cap = cv2.VideoCapture(0)
     deepMnist.restore()
-    th = 200
-    lastScans = []
-    lastResult = None
-    lastScanTime = None
+    d1 = Detector((145,165),(295,315), 'Add ball',(0, 255,0), showCase)
+    d2 = Detector((345,165),(495,315), 'Remove ball',(0,0,255), hideCase)
     while(True):
         # Capture frame-by-frame
         ret, frame = cap.read()
         frame = cv2.flip(frame,1)
 
         #detect, adaptive
-        frame, roi, circles = detect(frame, 200)
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        gray = cv2.equalizeHist(gray)
 
-        if circles is None:
-            th = max(0,th-1)
-        else:
-            # print circles
-            if len(circles) > 1:
-                th = min(1000,th+1)
+        frame, roi1 = d1.detect(frame, gray)
+        frame, roi2 = d2.detect(frame, gray)
 
         # Display the resulting frame
-        cv2.putText(frame,'{} {}'.format(th,circles),(10,20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, 255)
         cv2.imshow('frame',frame)
 
-        if roi is not None:
-            #flip back
-            roi = cv2.flip(roi,1)
-            #segment
-            roi, rois = segment(roi)
+        # if roi is not None:
+        #     #flip back
+        #     roi = cv2.flip(roi,1)
+        #     #segment
+        #     roi, rois = segment(roi)
 
-            # print len(rois)
-            # we have 5 digits
-            if len(rois) == 5:
-                # predict number
-                flat = [r.flatten() for r in rois]
-                result = deepMnist.predict(flat)
-                nr = int(''.join([str(r) for r in result]))
-                lastScans.append(nr)
-                # keep last 5
-                lastScans = lastScans[-5:]
-                print lastScans
+        #     # print len(rois)
+        #     # we have 5 digits
+        #     if len(rois) == 5:
+        #         # predict number
+        #         flat = [r.flatten() for r in rois]
+        #         result = deepMnist.predict(flat)
+        #         nr = int(''.join([str(r) for r in result]))
+        #         lastScans.append(nr)
+        #         # keep last 5
+        #         lastScans = lastScans[-5:]
+        #         print lastScans
 
-                #scanned the same number 5 times in a row
-                if len(lastScans) == 5:
-                    if lastScans[1:] == lastScans[:-1]:
-                        if not lastResult == lastScans[0]:
-                            print 'scanResult'
-                            print lastScans[0]
-                            lastResult = lastScans[0]
-                            lastScanTime = time.clock()
-                            showCase(lastResult)
+        #         #scanned the same number 5 times in a row
+        #         if len(lastScans) == 5:
+        #             if lastScans[1:] == lastScans[:-1]:
+        #                 if not lastResult == lastScans[0]:
+        #                     print 'scanResult'
+        #                     print lastScans[0]
+        #                     lastResult = lastScans[0]
+        #                     lastScanTime = time.clock()
+        #                     showCase(lastResult)
 
 
-                cv2.putText(roi,'{}'.format(nr),(10,20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, 0)
+        #         cv2.putText(roi,'{}'.format(nr),(10,20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, 0)
 
-                num = np.concatenate([r for r in rois], axis=1)
-                cv2.imshow('rois',num)
-                cv2.moveWindow('rois',700,300)
+        #         num = np.concatenate([r for r in rois], axis=1)
+        #         cv2.imshow('rois',num)
+        #         cv2.moveWindow('rois',700,300)
 
-            cv2.imshow('roi',roi)
-            cv2.moveWindow('roi',700,0)
-
-        # reset scanner after 5 seconds
-        if lastScanTime is not None:
-            if time.clock() - lastScanTime > 5:
-                print 'scan reset'
-                lastScanTime = None
-                lastResult = None
+        #     cv2.imshow('roi',roi)
+        #     cv2.moveWindow('roi',700,0)
 
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
